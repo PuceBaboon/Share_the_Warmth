@@ -1,0 +1,288 @@
+
+--
+--   $Id: bare_board.jal,v 1.5 2013/02/05 12:21:19 cvsusers Exp $
+--
+
+--
+-- Header file for bare-board configuration, as per the "getting started" section
+-- of the PIC18F27J53 manual from Microchip.  Specifically, no external crystals.
+-- NOTE:- You will need Vusb (pin 14) pulled to 3v3 and decoupled with a 0.1u (in
+--        addition to the "getting started" connections) in order to enable USB
+--        functionality.
+--
+
+--
+-- The rest of this file is a modified version of Sebastien Lelong's jaluino_bee.jal
+-- header template (see below for the BSD licence).  Here is Sebastien's header from
+-- that file.  Please also check his excellent work at http://jaluino.org.
+--
+--	%  -- Title: Jaluino Bee device file (wrapper over 18f27j53.jal)
+--	%  -- Author: Sebastien Lelong, Copyright (c) 2008..2009, all rights reserved.
+--	%  -- Adapted-by:
+--	%  -- Compiler: 2.4n
+--	%  -- Revision: $Revision: 1.5 $
+--	%  --
+--	%  -- This file is part of jaluino  (http://jaluino.googlecode.com)
+--	%  -- Released under the BSD license (http://www.opensource.org/licenses/bsd-license.php)
+--	%  --
+--	%  -- Description: this is the main file included in every jaluino project
+--	%  -- that uses Jaluino Bee hardware. Jaluino Bee is based on PIC 18F27J53.
+--	%  -- This files performs basic setup to configure PIC, like setting clock speed
+--	%  -- to 48MHz, disable watchdog, etc...
+--	%  -- --
+--	%  -- The idea is you just have to type "include jaluino_bee" and your chip
+--	%  -- is configured and ready to be used !
+--	%  --
+
+--
+--  NOTE:-  This derivative work (this file, specifically) is likewise released under the terms
+--          of the BSD licence:-
+--
+----------------------------<Start of Licence>------------------------------
+--
+--	Copyright (c) 2012, John Little. Komagane-Shi, Japan.
+--	All rights reserved.
+--
+--  Redistribution and use in source and binary forms, with or without
+--  modification, are permitted provided that the following conditions
+--  are met:
+--
+--  Redistributions of source code must retain the above copyright notice,
+--  this list of conditions and the following disclaimer.  Redistributions
+--  in binary form must reproduce the above copyright notice, this list
+--  of conditions and the following disclaimer in the documentation and/or
+--  other materials provided with the distribution.
+--
+--  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+--  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+--  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+--  A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+--  HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+--  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+--  TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+--  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+--  LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+--  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+--  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+--
+-----------------------------<End of Licence>-------------------------------
+
+
+-- Prior to including this lib, more configuration can be performed, particularly
+-- setting the following constants to 1 or other specific values:
+--    * BARE_BOARD_SKIP_PINMAP : won't create pin aliases, like "onboard_led"
+--    * ENABLE_MSSP2_SPI    : will configure PPS module for MSSP2 usage,
+--    * ENABLE_MSSP2_SDCARD : will auto-set ENABLE_MSSP2_SPI = 1 and configure
+--                            MSSP2 to user SD-Card
+--    * ENABLE_PPS_RX2TX2_B7B6 : prepare pins through PPS for serial hardware 2
+--                               module usage (RX2 <=> RB7, TX2 <=> RB6)
+--    * USE_SERIAL_HW: use passed value as baud speed and configure
+--                        serial hardware
+--    * USE_SERIAL_HW2: same as before, for second serial hardware module
+--
+
+include 18f27j53;
+
+pragma target clock	48_000_000   -- oscillator frequency
+
+--
+-- The following lines set the configuration specific to the hardware of the
+-- bare board (minimum component count, no external crystals).
+--
+pragma target PLLDIV	P2			-- Using the 8MHz Internal Oscillator, so /2.
+pragma target CPUDIV	P1			-- No postscaler divider.
+pragma target PLLEN	P4			-- The PLL is enabled.
+pragma target OSC	INTOSC_NOCLKOUT_PLL	-- Internal osc, no clock outputs, use PLL.
+pragma target LS48MHZ	P8			-- Using 48Mhz, so /8 to get low speed USB clock.
+pragma target WDT	DISABLED		-- Disable watchdog resets.
+-- pragma target XINST	DISABLED		-- Disable the extended instruction set.
+pragma target IOL1WAY	DISABLED		-- Disable pin-mapping at runtime.
+OSCCON_IRCF		= 0x07			-- Set internal clock osc to 8MHz.
+OSCCON_SCS		= 0x00			-- Set system clock source = primary clock source.
+OSCTUNE_PLLEN		= TRUE			-- PLL enabled (already enabled in fuses: PLLEN).
+
+-- Give PLL time to lock-in.
+_usec_delay(2000);				-- PLL requires 2ms to stablilize.
+
+enable_digital_io()
+
+-- Bare Board onboard LED definition
+-- define aliases
+alias LED is pin_C2
+alias LED_direction is pin_C2_direction
+
+include pps
+
+-- Configure Remappable Pins on MSSP2 to match SPI/SD-Card wiring,
+-- configure MSSP2 and initialize SD-card library
+if defined(ENABLE_MSSP2_SDCARD) then
+	if !defined(ENABLE_MSSP2_SPI) then
+	   const byte ENABLE_MSSP2_SPI = 1
+	end if
+end if
+
+if defined(ENABLE_MSSP2_SPI) then
+	-- PPS module writes are protected, we need to first unlock it
+	pps_control_lock(false)
+	-- RP3 <-> /SS2
+	PPS_MAP_SS2IN = RP3
+	-- RP2 <-> SCK2
+	PPS_MAP_RP2 = PPS_SCK2
+	PPS_MAP_SCK2IN = RP2
+	-- RP5 <-> SDI2
+	PPS_MAP_SDI2 = RP5
+	-- RP6 <-> SDO2
+	PPS_MAP_RP6 = PPS_SDO2
+	-- PPS configuration is done, we can lock again
+	pps_control_lock(true)
+
+	alias pin_ss2_direction is pin_b0_direction
+	alias pin_ss2 is pin_b0
+	alias pin_sdi2_direction is pin_b2_direction
+	alias pin_sdo2_direction is pin_b3_direction
+	alias pin_sck2_direction is pin_a5_direction
+
+	-- configure SPI to use MSSP2 module
+	include spi_master_hw2
+	pin_sdi2_direction = input    -- spi input
+	pin_sdo2_direction = output   -- spi output
+	pin_sck2_direction = output   -- spi clock
+	spi2_init(SPI_MODE_11,SPI_RATE_FOSC_4) -- init spi, choose mode and speed
+
+end if
+
+if defined(ENABLE_MSSP2_SDCARD) then
+
+	-- setup the sd card SPI "Slave Select" pin
+	alias sd_chip_select is pin_ss2
+	alias sd_chip_select_direction is pin_ss2_direction
+	sd_chip_select_direction = output
+	sd_chip_select = high
+
+	-- Aliases used for generic access for SD-card, pointing to MSSP2 related procedures
+	alias spi_master_set_mode is spi_master_hw2_set_mode
+	alias spi_master_set_speed is spi_master_hw2_set_speed
+
+	-- setup the sd card library
+	;const bit SD_EXTRA_SPEED = TRUE
+	const bit SD_ALWAYS_SET_SPI_MODE = TRUE
+	const bit SD_DELAY_AFTER_WRITE = TRUE
+	-- define which data carrier to use to access sd-card
+	alias spi_master is spi_master_hw2
+	
+	if defined(ENABLE_SDCARD_DEBUG) then
+	   const byte SD_CARD_USE_DEBUG_PROC = true
+	end if
+	include sd_card
+	sd_init()
+	
+end if
+
+if defined(ENABLE_MSSP2_23K256) then
+	if !defined(ENABLE_MSSP2_SDCARD) then
+	   _error "You need to ENABLE_MSSP2_SDCARD to setup MSSP2"
+	end if
+	alias sram_23k256_chip_select is pin_b1
+	alias sram_23k256_chip_select_direction is pin_b1_direction
+	-- initial settings
+	sram_23k256_chip_select_direction = output -- chip select/slave select pin
+	sram_23k256_chip_select = high             -- start chip slect high (chip disabled)
+	-- initalize 23k256 in byte mode, always set spi mode to 0,0
+	alias sram_23k256_force_spi_mode is spi_master_hw2_set_mode_00
+	-- setup Microchip 23k256 sram
+	include sram_23k256
+	-- init 23k256 in sequential mode
+	sram_23k256_init(SRAM_23K256_SEQUENTIAL_MODE, SRAM_23K256_HOLD_DISABLE)
+
+end if
+
+-- configure pins through PPS as:
+--  * B7 <= RX2
+--  * B6 => TX2
+if defined(ENABLE_PPS_RX2TX2_B7B6) then
+
+	include pps
+	-- PPS module writes are protected, we need to first unlock it
+	pps_control_lock(false)
+	-- TX2 is an output function: we assign a function to a RP pin (here RP9)
+	PPS_MAP_RP9 = PPS_TX2CK2
+	-- RX2 is an input function: we assign a RP pin the a function register
+	PPS_MAP_RX2DT2 = RP10
+	-- PPS configuration is done, we can lock again to apply changes
+	pps_control_lock(true)
+
+	-- declare aliases for the remapped RX2 and TX2 pins
+	alias pin_RX2            is  pin_RP10
+	alias pin_RX2_direction  is  pin_RP10_direction
+	alias pin_TX2            is  pin_RP9
+	alias pin_TX2_direction  is  pin_RP9_direction
+
+	-- PIC is ready to use serial_hardware2
+	
+end if
+
+if defined(USE_SERIAL_HW2) then
+	const serial_hw2_baudrate = USE_SERIAL_HW2
+	include serial_hardware2
+	serial_hw2_init()
+end if
+
+if defined(USE_SERIAL_HW) then
+	const serial_hw_baudrate = USE_SERIAL_HW
+	include serial_hardware
+	serial_hw_init()
+end if
+
+--
+-- As per the "Getting Started" instructions, disable all pins by defining them
+-- as outputs and then pulling them low.  This will be overridden by specific
+-- usage of pins in the main program, but will serve as a software disable for
+-- any pins not explicitly referenced.
+--
+-- PORT A  (Note, no pin_A4 on the 18F27J53).
+pin_A0_direction	= output;
+pin_A0			= 0;
+pin_A1_direction	= output;
+pin_A1			= 0;
+pin_A2_direction	= output;
+pin_A2			= 0;
+pin_A3_direction	= output;
+pin_A3			= 0;
+pin_A5_direction	= output;
+pin_A5			= 0;
+pin_A6_direction	= output;
+pin_A6			= 0;
+pin_A7_direction	= output;
+pin_A7			= 0;
+--
+-- PORT B
+pin_B0_direction	= output;
+pin_B0			= 0;
+pin_B1_direction	= output;
+pin_B1			= 0;
+pin_B2_direction	= output;
+pin_B2			= 0;
+pin_B3_direction	= output;
+pin_B3			= 0;
+pin_B4_direction	= output;
+pin_B4			= 0;
+pin_B5_direction	= output;
+pin_B5			= 0;
+pin_B6_direction	= output;
+pin_B6			= 0;
+pin_B7_direction	= output;
+pin_B7			= 0;
+--
+-- PORT C (Note, no pin_C3 on the 18F27J53
+--         and pin_C4 and pin_C5 are input-only).
+pin_C0_direction	= output;
+pin_C0			= 0;
+pin_C1_direction	= output;
+pin_C1			= 0;
+pin_C2_direction	= output;
+pin_C2			= 0;
+pin_C6_direction	= output;
+pin_C6			= 0;
+pin_C7_direction	= output;
+pin_C7			= 0;
+--

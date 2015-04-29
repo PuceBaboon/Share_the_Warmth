@@ -1,0 +1,110 @@
+-- ------------------------------------------------------
+-- Title: one wire JAL library
+--
+-- Author: Vasile Surducan, Copyright (c) 2009..2010, all rights reserved.
+--
+-- Adapted-by: Jean Marchaudon, Joep Suijs
+--
+-- Compiler: >=2.4m
+-- Revision: $Revision: 1.1 $
+--
+-- This file is part of jallib  (http://jallib.googlecode.com)
+-- Released under the ZLIB license (http://www.opensource.org/licenses/zlib-license.html)
+--
+-- Description: Library to interface with Dallas / Maxim one-wire-bus devices
+-- -- 
+-- Pin used for the 1-wire bus must be define these in your program 
+-- before including the library. E.g.:
+-- alias owbus   is pin_c1
+-- alias owbus_out  is pin_c1_direction
+--
+-- Sources:
+--
+-- Notes: 
+--
+-- ------------------------------------------------------
+
+procedure d1w_init() is
+   -- Prepare the bus
+   owbus              = low
+   owbus_direction    = input
+end procedure
+
+procedure _d1w_write_bit( bit in x ) is
+   owbus = low
+   owbus_direction = output
+   delay_10us( 1 )
+   if x == high then owbus_direction = input end if
+   delay_10us( 8 )
+   owbus_direction = input
+   delay_10us( 1 )
+end procedure
+
+procedure _d1w_read_bit( bit out x ) is
+   x = high
+   owbus = low
+   owbus_direction = output
+   delay_10us( 1 )
+   owbus_direction = input
+   delay_10us( 1 )
+   if owbus == low then x = low end if
+   delay_10us( 7 )
+end procedure
+
+procedure d1w_write_byte( byte in e ) is
+   var bit x at e : 0
+   for 8 loop
+      _d1w_write_bit( x )
+      e = e >> 1
+   end loop   
+   
+   -- power bus after byte is written
+   owbus = high
+   owbus_direction = output
+   
+end procedure
+
+procedure d1w_read_byte( byte out c ) is
+   var bit x at c : 7
+   for 8 loop
+      c = c >> 1
+      _d1w_read_bit( x )
+   end loop
+
+--% const byte opstr0[] = "Read byte: 0x";
+--% print_string(sdev, opstr0);
+--% print_byte_hex(sdev, c);
+--% print_crlf(sdev);
+
+   -- power bus after byte is read
+   owbus = high
+   owbus_direction = output
+
+end procedure
+
+procedure d1w_reset() is   
+   owbus = low
+   owbus_direction = output
+   delay_10us( 70 )
+   owbus_direction = input
+   delay_10us( 70 )
+end procedure
+
+function d1w_present() return bit is
+   var bit x = false
+   owbus = low
+   owbus_direction = output
+   delay_10us( 70 )
+   owbus_direction = input
+   delay_10us( 3 )
+   if owbus == low then 
+      x = true 
+   end if
+   delay_10us( 3 )
+   if owbus == low then 
+      x = true 
+   end if
+   delay_10us( 70 )
+   return x
+end function
+

@@ -1,0 +1,289 @@
+
+--
+--	$Id: ow_search.jal,v 1.4 2014/01/01 07:14:42 cvsusers Exp $
+--
+--  All global variables and other defines are in ow_globals.jal.
+--
+
+-- Wrapper for one_wire.jal lib "presence detect" function.
+function OWReset return bit is
+	return(d1w_present());
+end function
+
+-- Wrapper for one_wire.jal lib "read bit" function.
+function OWReadBit return bit is
+	var bit wrapbit;
+
+	_d1w_read_bit(wrapbit);
+	return(wrapbit);
+end function
+
+-- Wrapper for one_wire.jal lib "read_byte" function.
+function OWReadByte return byte is
+	var byte wrapbyte;
+
+	d1w_read_byte(wrapbyte);
+	return(wrapbyte);
+end function
+
+-- Wrapper for one_wire.jal lib "write byte" procedure.
+procedure OWWriteByte (byte in wrapbyte) is
+	d1w_write_byte(wrapbyte);
+end procedure
+
+-- Wrapper for one_wire.jal lib "write bit" procedure.
+procedure OWWriteBit (bit in wrapbit) is
+	_d1w_write_bit(wrapbit);
+end procedure
+
+--
+-- Update the Dallas Semiconductor One Wire CRC (utilcrc8) from the global
+-- variable utilcrc8 and the argument.
+--
+-- 'x'  - data byte to calculate the 8 bit crc from
+--
+-- Returns: the updated utilcrc8.
+--
+function docrc8(byte in x) return byte is
+        utilcrc8 = dscrc_table[utilcrc8 ^ x];
+        return utilcrc8;
+end function
+
+----------------------------------------------------------------------------
+-- Perform the 1-Wire Search Algorithm on the 1-Wire bus using the existing
+-- search state.
+-- Return TRUE  : device found, ROM number in ROM_NO buffer
+--		  FALSE : device not found, end of search
+--
+function OWSearch return bit is
+
+	var bit  id_bit, cmp_id_bit, search_result, search_direction;
+	var byte id_bit_number, rom_byte_mask;
+	var byte last_zero, rom_byte_number;
+
+	-- initialize for search
+	id_bit_number = 1;
+	last_zero = 0;
+	rom_byte_number = 0;
+	rom_byte_mask = 1;
+	search_result = 0;
+	crc8 = 0;
+
+	-- if the last call was not the last one
+	if (!LastDeviceFlag) then
+	
+		-- 1-Wire reset
+		if (!OWReset()) then
+		
+			-- reset the search
+			LastDiscrepancy = 0;
+			LastDeviceFlag = FALSE;
+			LastFamilyDiscrepancy = 0;
+			return FALSE;
+		end if
+
+		-- issue the search command 
+		OWWriteByte(SEARCH_ROM);  
+
+		-- loop to do the search
+		repeat
+		
+			-- read a bit and its complement
+			id_bit = OWReadBit();
+			cmp_id_bit = OWReadBit();
+
+			-- check for no devices on 1-wire
+			if ((id_bit == 1) & (cmp_id_bit == 1)) then
+				exit loop;
+			else
+			
+				-- all devices coupled have 0 or 1
+				if (id_bit != cmp_id_bit) then
+					search_direction = id_bit;  -- bit write value for search
+				else
+				
+					-- If this discrepancy is before the Last Discrepancy
+					-- on a previous Next(), then pick the same as last time
+					if (id_bit_number < LastDiscrepancy) then
+						search_direction = ((ROM_NO[rom_byte_number] & rom_byte_mask) > 0);
+					else
+						-- if equal to last pick 1, if not then pick 0
+						search_direction = (id_bit_number == LastDiscrepancy);
+					end if
+
+					-- if 0 was picked then record its position in LastZero
+					if (search_direction == 0) then
+					
+						last_zero = id_bit_number;
+
+						-- check for Last discrepancy in family
+						if (last_zero < 9) then
+							LastFamilyDiscrepancy = last_zero;
+						end if
+					end if
+				end if
+
+				-- set or clear the bit in the ROM byte rom_byte_number
+				-- with mask rom_byte_mask
+				if (search_direction == 1) then
+					ROM_NO[rom_byte_number] = (ROM_NO[rom_byte_number] | rom_byte_mask);
+				else
+					ROM_NO[rom_byte_number] = (ROM_NO[rom_byte_number] & (! rom_byte_mask));  -- ?Okay?
+				end if
+
+				-- serial number search direction write bit
+				OWWriteBit(search_direction);
+
+				-- increment the byte counter id_bit_number
+				-- and shift the mask rom_byte_mask
+				id_bit_number = id_bit_number + 1;
+				rom_byte_mask = rom_byte_mask << 1;
+
+				-- if the mask is 0 then go to new ROM_NO byte rom_byte_number and reset mask
+				if (rom_byte_mask == 0) then
+				
+					 var byte void = docrc8(ROM_NO[rom_byte_number]);  -- accumulate the CRC
+					 rom_byte_number = rom_byte_number + 1;
+					 rom_byte_mask = 1;
+				end if
+			end if
+		
+		until(rom_byte_number >= 8);  -- loop until through all ROM bytes 0-7
+
+		-- if the search was successful then
+		if (!((id_bit_number < 65) | (crc8 != 0))) then
+		
+			-- search successful so set LastDiscrepancy,LastDeviceFlag,search_result
+			LastDiscrepancy = last_zero;
+
+			-- check for last device
+			if (LastDiscrepancy == 0) then
+				LastDeviceFlag = TRUE;
+			end if
+			
+			search_result = TRUE;
+		end if
+	end if
+
+	-- if no device found then reset counters so next 'search' will be like a first
+	if (!search_result | !(!! ROM_NO[0])) then
+		LastDiscrepancy = 0;
+		LastDeviceFlag = FALSE;
+		LastFamilyDiscrepancy = 0;
+		search_result = FALSE;
+	end if
+
+	return search_result;
+end function
+
+--
+-- Find the 'first' devices on the 1-Wire bus
+-- Return TRUE  : device found, ROM number in ROM_NO buffer
+--		  FALSE : no device present
+--
+function OWFirst return bit is
+
+	-- reset the search state
+	LastDiscrepancy = 0;
+	LastDeviceFlag = FALSE;
+	LastFamilyDiscrepancy = 0;
+
+	return OWSearch();
+end function
+
+
+----------------------------------------------------------------------------
+-- Find the 'next' devices on the 1-Wire bus
+-- Return TRUE  : device found, ROM number in ROM_NO buffer
+--		  FALSE : device not found, end of search
+--
+function OWNext return bit is
+
+	-- leave the search state alone
+	return OWSearch();
+end function
+
+----------------------------------------------------------------------------
+-- The 'owSerialNum' function either reads or sets the ROM_NO buffer
+-- that is used in the search functions 'owFirst' and 'owNext'.
+-- The parameter is a flag called 'do_read' that is TRUE (1) if the
+-- operation is to read and FALSE (0) if the operation is to set the
+-- internal ROM_NO buffer from the data in the global variable
+-- 'FamilySN'.
+--
+-- 'FamilySN' - global variable that contains the serial number to set
+--		when do_read = FALSE (0) and to get into when 
+--		do_read = TRUE (1).
+--		NOTE:- FamilySN[] is an array of records.  The original
+--		C code used a two-dimensional array.  See
+--		the file ow_globals.jal for the definition.
+--
+-- 'fsn_num' - Number of the FamilySN record to address.
+--
+-- 'do_read' - flag to indicate reading (1) or setting (0) the current
+--				 serial number.
+--
+procedure owSerialNum(byte in fsn_num, bit in do_read) is
+
+	var byte i = 0;
+
+	if (OWDEBUG)	then
+		print_crlf(xport);
+		const byte osn[] = "owSerNum args: ";
+		const byte spc[] = " ";
+		print_string(xport, osn);
+		print_byte_dec(xport, fsn_num);
+		print_string(xport, spc);
+		print_bit_logic(xport, do_read);
+		print_crlf(xport);
+	end if
+
+	-- read the internal buffer and place in 'FamilySN'
+--	for SN_LENGTH using i loop
+	while (i < SN_LENGTH)	loop
+		if (! do_read) then
+			FamilySN[fsn_num].sn[i] = ROM_NO[i];	-- Read serial number into array.
+		else
+			ROM_NO[i] = FamilySN[fsn_num].sn[i];	-- Write serial number from array
+								-- into ROM_NO[] (temp storage).
+		end if
+		i = i + 1;
+	end loop
+end procedure
+
+
+--
+-- Search for all devices on 1-wire bus.
+--
+--  Loads serial numbers of all devices found into the global array, FamilySN[].
+--  Puts the count of devices found into the global variable DevCount.
+--
+procedure OWFindAll is
+	var byte i = 0;
+	DevCount = 0;			-- Initialize global device count to 0.
+	var bit rslt = OWFirst();	-- First iteration.
+
+	while rslt loop
+
+		if (OWDEBUG)	then
+			-- Print serial number of device.
+			for SN_LENGTH using i loop
+				print_byte_hex(xport, ROM_NO[i]);
+			end loop
+			print_crlf(xport);
+		end if
+
+		if (DevCount >= MAXDEVICES) then
+			const byte dcerr1[] = "Dev count limit exceeded... truncating\r\n";
+			print_string(xport, dcerr1);
+			DevCount = DevCount - 1;
+			exit loop;
+		end if	
+		owSerialNum(DevCount, FALSE);	-- Put serial number into FamilySN array.
+		rslt = OWNext();	-- Next iteration(s).
+
+		DevCount = DevCount + 1;
+	end loop
+end procedure
+
+

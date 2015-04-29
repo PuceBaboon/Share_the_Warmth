@@ -1,0 +1,26 @@
+
+--
+--  $Id: ow_perror.jal,v 1.1 2013/02/26 21:57:48 cvsusers Exp $
+--
+--  Centralized location for global error strings and associated print routine
+--  for one-wire network specific errors.
+--
+
+const byte err_hdr[]	= "ERROR ownet: ";
+const byte err_err[]	= "== UNKNOWN ERROR IDENTIFIER ==";
+const byte err0[]	= "No device presence pulse detected";
+const byte err1[]	= "Block too big";
+const byte err2[]	= "Write verification failed";
+const byte err3[]	= "Block transfer failed"
+
+procedure ow_perror(byte in errno) is
+	print_string(xport, err_hdr);
+	case errno of
+		0: print_string(xport, err0);
+		1: print_string(xport, err1);
+		2: print_string(xport, err2);
+		3: print_string(xport, err3);
+		otherwise print_string(xport, err_err);
+	end case
+	print_crlf(xport);
+end procedure

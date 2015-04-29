@@ -1,0 +1,85 @@
+
+--
+-- $Id: xport.jal,v 1.1 2013/02/05 12:29:19 cvsusers Exp $
+--
+-- Driver routines for Xport module.  These routines access the Xport
+-- using it's on-board serial port, not via the network connection.
+--
+-- NOTE:- Use port 9999 to connect to the set-up utility on the Xport
+--        over the network.
+--
+-- NOTE:- Use port 10001 to connect to default (channel 1) serial port
+--        over the network.
+--
+
+--
+-- Toggle Xport reset line.
+--
+procedure xport_reset() is
+	XPORT_RST = low;			-- Note - Reset is active -low-.
+	delay_1ms(50);
+	XPORT_RST = high;
+--	XPORT_CP1 = high;
+--	XPORT_CP2 = high;
+--	XPORT_CP3 = high;
+	return;
+end procedure
+
+--
+-- Enter set-up mode on Xport serial port (need to send "xxx"
+-- within one second of a reset).
+--
+procedure xport_setup() is
+	xport_reset();
+	delay_1ms(325);
+
+--	XPORT_IN = high;			-- Initializing high helps speed
+--	XPORT_OUT = high;			-- up sync of characters for
+						-- soft-UART.
+	return;
+end procedure
+
+--
+-- Force a disconnect (Xport must have disconnect mode 0x80 set and must
+-- have CP3 configured as DTR input).
+--
+--procedure xport_disconnect() is
+--	XPORT_CP3 = low;			-- NOTE - DTR is active -low-.
+--	delay_1ms(10);
+--	XPORT_CP3 = high;
+--	return;
+--end procedure
+
+--
+-- Wait for character from RS232 (UART).
+-- Return character received, or NULL if nothing received before timeout.
+--
+--% function timed_getc() return byte is
+--% 	var word timeout;
+--% 
+--% 	timeout = 0;
+--% 	while (!kbhit(XPORT) && (++timeout < 50000)) loop
+--% 	delay_us(5);
+--% 	if (kbhit(XPORT)) then
+--% 	  return (fgetc(XPORT));
+--% 	endif
+--% 	end loop
+--% 	return (0);
+--% end function
+
+--
+-- Non-blocking input routine for Xport ASCII data.
+--
+--% procedure print_xpin() is
+--% 	int8 c;
+--% 	int8 y;
+--% 
+--% 	for (y = 0; y <= 10; y++) {
+--% 	c = timed_getc();
+--% 	if ((0 != c) && isalnum(c)) {
+--% 	  fputc(c, STDOUT);
+--% 	  y = 0;
+--% 	}
+--% 	}
+--% 	return;
+--% end procedure

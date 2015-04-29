@@ -1,0 +1,170 @@
+
+--
+--   $Id: ow_get_temps.jal,v 1.3 2014/01/01 02:32:47 cvsusers Exp $
+--
+--  Get the temperature reading from each of the devices found on the 1-wire bus.
+--
+
+
+--
+--  Dallas on-line docs conversion/display routine for DS18S20.
+--
+--  Arguments are:-
+--
+--	temp_msb	-- Most significant byte of device scratch-pad.
+--	temp_lsb	-- Least significant byte of device scratch-pad.
+--
+--  This routine is specific to the DS18S20 temperature sensor, but can
+--  easily be adapted for use for any other, similar device.
+--
+procedure DS18S20_Disp (byte in temp_msb, byte in temp_lsb) is
+	const byte tout[] = "Degrees C: ";
+	const byte minus[] = "-";
+	const byte point[] = ".";
+	var byte fract = 0;
+	var bit halfdeg at temp_lsb : 0;
+
+	if (halfdeg)	then
+		fract = 5;			-- If half-degree bit is set, print.
+	end if
+
+	if (temp_msb <= 0x80)	then
+		temp_lsb = (temp_lsb/2);	-- Shift to get whole degree.
+	end if
+	temp_msb = temp_msb & 0x80;		-- Mask all but the sign bit.
+
+	if (temp_msb >= 0x80)	then
+		temp_lsb = (! temp_lsb) + 1;	-- Twos complement.
+	end if
+
+	if (temp_msb >= 0x80)	then
+		temp_lsb = (temp_lsb/2);	-- Shift to get whole degree.
+	end if
+
+	print_string(xport, tout);		-- Print prefix "Deg C".
+
+	if (temp_msb >= 0x80)	then
+	--	temp_lsb = ((-1)*temp_lsb);	-- (original C code)
+		print_string(xport, minus);	-- Add "-" prefix for minus temperatures.
+	end if
+
+	print_byte_dec(xport, temp_lsb);		-- Print temperature in degrees C.
+	print_string(xport, point);		-- Print decimal point.
+	print_byte_dec(xport, fract);		-- Print fractional part.
+	print_crlf(xport);
+
+	return;
+
+end procedure
+
+
+--
+-- Initialize the 1-wire bus to address the specific device currently
+-- pointed to by the serial number stored in the ROM_NO array.
+--
+procedure AddressDevice is
+	var byte i = 0;
+
+	-- Reset the bus. Return an error if there are no devices found.
+	if (! OWReset()) then
+		ow_perror(0);	-- OWERROR(OWERROR_NO_DEVICES_ON_NET);
+		return;
+	end if
+
+	-- Send the "Match ROM" command and then the serial number of
+	-- the device to be addressed.
+	OWWriteByte(MATCH_ROM);
+--	for SN_LENGTH using i loop
+	while (i < SN_LENGTH) loop
+		OWWriteByte(ROM_NO[i]);
+		i = i + 1;
+	end loop
+
+	return;
+end procedure
+
+
+--
+-- Display the temperature for all of the devices stored in the FamilySN[]
+-- array.
+--
+procedure DisplayStored is
+	var byte i = 0;
+
+--	for (DevCount) using i loop
+--		for (SN_LENGTH) using j loop
+
+	while (i < DevCount) loop
+		var byte j = 0;
+		while (j < SN_LENGTH) loop
+			print_byte_hex(xport, FamilySN[i].sn[j]);
+			j = j + 1;
+		end loop
+		const byte tdst[] = ":\n\r\t ";
+		print_string(xport, tdst);
+		DS18S20_Disp(FamilySN[i].tmsb, FamilySN[i].tlsb);
+		i = i + 1;
+	end loop
+	print_crlf(xport);
+
+	return;
+end procedure
+
+
+--
+-- Get temperatures.
+--
+-- Takes the device list found in the global array FamilySN[] and interrogates
+-- each device in turn for the temperature reading.
+-- Stores the temperature read from the device back into the FamilySN[] array
+-- of records.
+--
+procedure GetTemperatures is
+	var byte i = 0, j = 0;
+
+--	for (DevCount - 1) using i loop
+	while (i < DevCount) loop
+
+		if (OWDEBUG)	then
+			const byte gtinf[] = "GetTemp ";
+			print_string(xport, gtinf);
+			print_byte_dec(xport, DevCount);
+			const byte spc[] = " ";
+			print_string(xport, spc);
+			print_byte_dec(xport, i);
+			print_crlf(xport);
+		end if
+
+		owSerialNum(i, TRUE);	-- Get serial number for this device from
+					-- the FamilySN array and put it into the
+					-- ROM_NO working array.
+
+		-- Send the "Temperature Convert" command to initialize a reading
+		-- from the addressed device.
+		AddressDevice();
+		OWWriteByte(T_CONVERT);
+		delay_1s(1);		-- Give conversion time to finish.
+
+
+		-- Send the "Read Scratch-Pad" command to initiate transfer the actual
+		-- temperature data.
+		AddressDevice();
+		OWWriteByte(READ_SPAD);
+
+		-- Store the temperature data from scratch-pad memory into
+		-- the record structure for this device.
+		FamilySN[i].tlsb = OWReadByte();
+		FamilySN[i].tmsb = OWReadByte();
+
+		i = i + 1;
+
+	end loop
+
+	-- Reset the bus to let all devices know that we're done.
+	if (! OWReset()) then
+		ow_perror(0);	-- OWERROR(OWERROR_NO_DEVICES_ON_NET);
+		return;
+	end if
+
+	return;
+end procedure

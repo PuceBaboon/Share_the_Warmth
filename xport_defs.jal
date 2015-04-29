@@ -1,0 +1,48 @@
+
+--
+-- $Id: xport_defs.jal,v 1.1 2013/02/05 12:29:19 cvsusers Exp $
+--
+-- Defines for Xport module driver routines.
+--
+-- NOTE:- Use port 10001 to connect to default (channel 1) over the
+--        network.
+--
+-- Hardware config for Xport Rev.03 is:-
+--
+-- 	Pin 1	- GND
+-- 	Pin 2	- +3v3
+-- 	Pin 3	- /Reset (Active low)
+-- 	Pin 4	- Serial Data Out
+-- 	Pin 5	- Serial Data In
+-- 	Pin 6	- CP1 (or RTS out from Xport)
+-- 	Pin 7	- CP2 (or DTR out from Xport)
+-- 	Pin 8	- CP3 (or CTS/DCD input to Xport)
+--
+
+alias XPORT_RST is pin_C1;	-- XPort hardware reset pin (active -low-).
+alias XPORT_RST_direction is pin_C1_direction;
+XPORT_RST_direction = output;
+--
+alias XPORT_OUT is pin_C7;	-- Serial data in from XPort to PIC.
+alias XPORT_OUT_direction is pin_C7_direction;
+XPORT_OUT_direction = input;
+--
+alias XPORT_IN is pin_C6;	-- Serial data out from PIC to XPort.
+alias XPORT_IN_direction is pin_C6_direction;
+XPORT_IN_direction = output;
+--
+--alias XPORT_CP1 is pin_A3;
+--alias XPORT_CP1_direction is pin_A3_direction;
+--XPORT_CP1_direction = output;
+--
+--alias XPORT_CP2 is pin_A4;
+--alias XPORT_CP2_direction is pin_A4_direction;
+--XPORT_CP2_direction = output;
+--
+--alias XPORT_CP3	is pin_B7;
+--alias XPORT_CP3_direction is pin_B7_direction;
+--XPORT_CP3_direction = output;
+--
+--alias XINIT_IN is pin_C1;	-- ??? Check board hardware.
+--alias XINIT_OUT is pin_C2;	-- ??? Check board hardware.
+

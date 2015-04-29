@@ -1,0 +1,520 @@
+
+--
+--	$Id: main.jal,v 1.10 2014/01/01 11:40:13 cvsusers Exp $
+--
+
+-- The chip type, clock source and frequency (as well as other fuses) are
+-- set in the "bare_board.jal" header file.
+include bare_board;
+
+include delay;
+include print;
+include pwm_common;
+-- include usb_local_defs;
+-- include usb_local_serial;
+include xport_defs;
+include xport;
+
+-- Configure PWM...
+pin_ccp6_direction = output;		-- ("pwm6") Pin 27/RB6 as "DRV1" signal.
+pin_ccp7_direction = output;		-- ("pwm7") Pin 28/RB7 as "DRV2" signal.
+include pwm_hardware;
+-- ...and  initialize.
+pwm_max_resolution(1);			-- Set prescaler for high frequency PWM.
+pwm_set_frequency(32_000);
+-- Set the PWM duty-cycle to something sensible here, as a safeguard.
+pwm6_set_dutycycle_ratio(130);		-- Approx 12.00v with load.
+-- pwm7_set_dutycycle_ratio(130);		-- Approx 12.00v with load.
+
+-- Configure AtoD...
+const byte ADC_NVREF = ADC_NO_EXT_VREF;	-- Internal Vref.
+const ADC_RSOURCE = 2_500;		-- Input impedence (approx).
+const ADC_HIGH_RESOLUTION = FALSE;	-- Use high resolution for 4096 steps on the 18F27J53.
+					-- Low resolution is 1024 steps.
+const ADC_NCHAN = 2;			-- We are using two, separate PWM channels.
+
+include adc;				-- The adc.jal library already includes
+					-- delay.jal, too.
+adc_init()				-- Initialize the ADC set up.
+const byte ADC_PWM_CH1		= 2	-- Pin 4/AN2 as "VF1" signal.
+const byte ADC_PWM_CH2		= 3	-- Pin 5/AN3 as "VF2" signal.
+set_analog_pin(ADC_PWM_CH1);		-- Analog input.
+set_analog_pin(ADC_PWM_CH2);		-- Analog input.
+
+-- Configure USB...
+-- alias sdev is	usb_serial_data		-- Now we can use the non-hardware specific (and shorter)
+-- usb_serial_init();			-- "sdev" in all of our print routines.
+-- const byte usb_str_welcome[] = "Heat/Vent Controller v0.01b\r\n"
+-- const byte str_test_unit[] = "Unit test...\r\n"
+-- print_string(sdev, usb_str_welcome);
+-- print_string(sdev, str_test_unit);
+
+-- Configure serial comms via XPort.
+const serial_hw_baudrate  = 9600;	-- XPort baudrate must match this setting.
+include serial_hardware;
+alias xport is serial_hw_data;		-- So we can use "print_string(xport, string)".
+serial_hw_init();
+xport_reset();
+
+-- Configure the remappable I/O pins using PPS.
+include pps;
+pps_control_lock(false);		-- PPS unlock.
+PPS_MAP_INT1		= RP11;		-- Remap RP11 (pin 11) to Ext Int #1.
+pps_control_lock(true);			-- Re-lock PPS.
+alias pin_TACH1			is pin_RP11;
+alias pin_TACH1_direction	is pin_RP11_direction;
+pin_TACH1_direction	= input;	-- Declare our tachometer as an input.
+var word tach1_count	= 0;		-- Rev counter for TACH1.
+var word tach2_count	= 0;		-- Rev counter for TACH2.
+var word tach1_rpm	= 0;		-- Actual RPM (channel 1).
+var word tach2_rpm	= 0;		-- Actual RPM (channel 2).
+
+-- Configure interrupts for the tachometer pins.
+-- (Note that global interrupts are enabled by 
+--  timer0_isr_init() in the next section).
+alias INT1P			is INTCON3_INT1IP;
+alias INT1F			is INTCON3_INT1IF;
+alias INT1E			is INTCON3_INT1IE;
+alias INTEDG1			is INTCON2_INTEDG1;
+alias INT2P			is INTCON3_INT2IP;
+alias INT2F			is INTCON3_INT2IF;
+alias INT2E			is INTCON3_INT2IE;
+alias INTEDG2			is INTCON2_INTEDG2;
+INTEDG1			= 0;		-- Falling edge interrpt.
+INTEDG2			= 0;		-- Falling edge interrpt.
+INT1E			= FALSE;	-- TRUE = Enable INT1 external interrupt (RP11).
+RCON_IPEN		= FALSE;	-- Disable priorities for interrupts.
+INTCON_PEIE		= FALSE;	-- TRUE = Enable peripheral interrupts.
+
+--
+-- Configure timer to provide regular interrupts.
+-- The isr rate is configured at 200Hz.  The two timer "slots" can be
+-- configured to time-out at different rates by counting the 200Hz
+-- "ticks" using set_delay(slot, ticks) and then using a regular
+-- check within a loop, check_delay(slot), to verify whether a timeout
+-- has occurred or not.
+--
+const timer0_isr_rate	= 200;		-- 200Hz interrupt rate (100 too low).
+const DELAY_SLOTS	= 2;		-- Use two timer "slots" (0 & 1).
+const five_Hz		= 40;		-- Configure a divisor for 5Hz.
+include timer0_isr_interval;
+timer0_isr_init();			-- Initialize timer0 counter.
+set_delay(0, five_Hz);			-- Set slot 0 to 5Hz (200 / 40);
+set_delay(1, timer0_isr_rate);		-- Set slot 1 to 1Hz (200 / 200);
+
+--
+-- Interrupt handler for tachometer pins.
+--
+procedure tachometer_isr() is
+	if (!INT1F & !INT2F) then
+		return;			-- Not for us; quick return.
+	elsif (INT1F) then
+		tach1_count = tach1_count + 1;
+		INT1E = FALSE;		-- Disable the interrupt.
+		INT1F = FALSE;		-- Reset the interrupt flag.
+		INT1E = TRUE;		-- Re-enable interrupt.
+	elsif (INT2F) then
+		tach2_count = tach2_count + 1;
+		INT2E = FALSE;		-- Disable the interrupt.
+		INT2F = FALSE;		-- Reset the interrupt flag.
+		INT2E = TRUE;		-- Re-enable interrupt.
+	end if
+	return;
+end procedure
+
+-- Set-up the One-Wire Bus.
+alias owbus is pin_B5
+alias owbus_direction is pin_B5_direction
+owbus_direction = input;	-- Pin 26 (RB5) is digital input.
+include ow_globals
+include ow_perror
+include d1w
+-- include ow_net
+include ow_search
+include ow_get_temps
+
+procedure OWSearchnTell() is
+	OWFindAll();		-- Request a full search for all devices on bus.
+	if (OWDEBUG)	then
+		const byte found[] = "Number of devices found: ";
+		print_string(xport, found);
+		print_byte_dec(xport, DevCount);
+		print_crlf(xport);
+	end if
+						
+	GetTemperatures();	-- Read temperature data from all devices found.
+	DisplayStored();	-- Display temperature in C from all devices.
+end procedure
+
+procedure flash_high() is
+	var bit saveLED = LED;	-- Save current value.
+	LED = off;
+	for 3 loop
+		delay_100ms(1);
+		LED = !LED;
+		delay_100ms(1);
+		LED = !LED;
+	end loop
+	LED = saveLED;
+end procedure
+
+procedure flash_low() is
+	var bit saveLED = LED;	-- Save current value.
+	LED = off;
+	for 2 loop
+		delay_100ms(1);
+		LED = !LED;
+		delay_100ms(1);
+		LED = !LED;
+	end loop
+	LED = saveLED;
+end procedure
+
+procedure flash_vok() is
+	var bit saveLED = LED;	-- Save current value.
+	LED = !LED;
+	delay_100ms(1);		-- Yes, we're on target.
+	LED = !LED;
+	LED = saveLED;
+end procedure
+
+
+--
+-- Menu, main loop.
+--
+
+var word INT_cnt	= 0;	-- Interrupt counter - FOR TESTING ONLY
+var word ADC_target	= 983;	-- 12V at output, under load.
+const word ADC_hitarg	= 983;	-- ~12v FOR TESTING ONLY
+const word ADC_lowtarg	= 737;	-- ~9V FOR TESTING ONLY
+const word ADC_limit	= 1024;	-- Arbitrary round number.
+const byte ADC_leeway	= 25;	-- About 500mv of leeway for drift.
+const byte ADC_average	= 5;
+const word RPM_div	= 2;	-- RPM divisor (fans typically output 2 or 4
+				-- tach pulses per revolution).
+const byte STALL_delay	= 5;	-- Number of seconds before initiating recovery.
+const byte ow_trigger	= 5;	-- Number of minutes before triggering a 1-wire read.
+var bit PUP_flag	= 1;	-- Power-up flag (switch on init);
+var bit PDLY_flag	= 1;	-- In power-up delay loop.
+var bit ESTOP_flag	= 0;	-- True when we have executed an emergency stop.
+var bit F1STALL_flag	= 0;	-- Flag a stall condition for channel 1.
+var bit F2STALL_flag	= 0;	-- Flag a stall condition for channel 2.
+var byte s1loop_cnt	= 0;	-- Stall loop counters to enable a short delay 
+var byte s2loop_cnt	= 0;	-- before initiating a stall recovery.
+var byte seconds_cnt	= 0;	-- Main-loop counter.
+var byte minute_cnt	= 0;	-- Counts ISR calls for RPM calculation.
+var byte ow_mdly_cnt	= 0;	-- One-Wire minute delay counter (scheduler).
+var byte pup_delay	= 0;	-- Power-up Delay counter.
+var word PWM_ratio	= 512;	-- Start with a low, 512 ratio on-time.
+var word w_measure	= 0;	-- Word to hold 10/12-bit ADC result.
+
+const byte tab[]	= "\t";
+const byte pwm[]	= "PWM ratio: "
+const byte hi[]		= "High";
+const byte vhi[]	= "Very High";
+const byte lo[]		= "Low";
+const byte vlo[]	= "Very Low";
+const byte ok[]		= "Okay";
+const byte stall[]	= "Stall detected on channel: ";
+const byte targ[]	= "Target: ";
+const byte adc[]	= "ADC Count: ";
+const byte tach[]	= "Tach Count: ";
+const byte rpm[]	= "====> RPM: ";
+const byte add[]	= "...Adding 1 to PWM\n\r";
+const byte sub[]	= "...Subtracting 1 from PWM\n\r";
+const byte add10[]	= "...Adding 10 to PWM\n\r";
+const byte sub10[]	= "...Subtracting 10 from PWM\n\r";
+const byte pup[]	= "Power_Up: ";
+const byte estop[]	= "!!EMERGENCY STOP!!";
+const byte ov_detect[]	= "Overvoltage detected - ADC: ";
+
+--
+-- Something is badly wrong.  Shut down the PWM drive immediately.
+--
+procedure emergency_stop() is
+	pwm6_off();
+	pwm7_off();
+	ESTOP_flag = 1;		-- Flag emergency stop state.
+	print_string(xport, estop);
+	print_crlf(xport);
+end procedure
+
+--
+-- Calculate the RPM for both fans.  This routine is called once
+-- per second by an interrupt from timer0.  For most calls we simply
+-- update the RPM count, only doing the actual
+-- "tach1_count" is updated by the tachometer signal ISR.
+-- "tach1_rmp" is the actual RPM value calculated every minute by
+--             this routine.
+-- "F1STALL_flag" is true when the fan does not return any count
+--                and -may- indicate a jammed or faulty fan.
+-- "STALL_delay" is the number of seconds to delay before initiating
+--               a stall recovery routine on a fan. (Common const).
+-- The same naming convention is used for the second fan channel.
+--
+procedure calc_rpm() is
+	LED = !LED;
+	minute_cnt = minute_cnt + 1;
+
+tach1_count = tach1_count + INT_cnt;	--TESTING ONLY
+INT_cnt = 0;
+
+	-- Update our RPM counters and check for (on-going) stall
+	-- condition.
+	if (tach1_count <= 0) then
+		print_string(xport, stall);
+		print_byte_dec(xport, 1);
+		print_crlf(xport);
+	else
+		if ((minute_cnt % 5) == 0) then
+		
+--		print_string(xport, tach);
+--		print_byte_dec(xport, 1);
+		print_word_dec(xport, tach1_count);
+		xport = "\t";
+--		print_crlf(xport);
+		tach1_rpm = tach1_rpm + tach1_count;
+		tach1_count = 0;
+		end if
+	end if
+
+--	if (tach2_count <= 0) then
+--		print_string(xport, stall);
+--		print_byte_dec(xport, 2);
+--		print_crlf(xport);
+--	else
+--		print_string(xport, tach);
+--		print_byte_dec(xport, 2);
+--		xport = "\t";
+--		print_byte_dec(xport, tach2_count);
+--		print_crlf(xport);
+--		tach2_rpm = tach2_rpm + tach2_count;
+--		tach2_count = 0;
+--	end if
+
+	if (minute_cnt < 60) then
+		return;
+	end if
+
+	tach1_rpm = tach1_rpm / RPM_div;
+	print_string(xport, rpm);
+	print_byte_dec(xport, 1);
+	xport = "\t";
+	print_word_dec(xport, tach1_rpm);
+	print_crlf(xport);
+	tach1_rpm = 0;
+
+--	print_string(xport, rpm);
+--	print_byte_dec(xport, 2);
+--	xport = "\t";
+--	print_word_dec(xport, tach2_rpm);
+--	print_crlf(xport);
+--	tach2_rpm = 0;
+
+	minute_cnt = 0;
+
+print_word_dec(xport, PWM_ratio);
+xport = "\t";
+print_word_dec(xport, w_measure);
+xport = "\t";
+
+	return;
+end procedure
+
+--
+-- Set initial duty-cycle and turn on PWM (turning it on
+-- and off inside the forever loop causes it to "hunt").
+--
+pwm6_set_dutycycle_ratio(PWM_ratio);
+pwm6_on();
+
+LED_direction = output;
+LED = off;	-- Initial state.
+
+ADC_target = ADC_hitarg;	-- TESTING
+
+forever loop
+
+--	LED = !LED;
+--	usb_serial_flush();
+
+	--
+	-- Limit the PWM_ratio updates to five per second during
+	-- normal operation.
+	--
+	if (check_delay(0)) then
+		set_delay(0, five_Hz);		-- Reset the 5Hz timer.
+		if (PWM_ratio >= 1024) then
+			PWM_ratio = 1023;	-- This is our limit for 10-bit PWM.
+		end if
+		pwm6_set_dutycycle_ratio(PWM_ratio);
+	end if
+
+	--
+	-- If we are not in power-up mode...
+	--
+	if (PUP_flag != 1) then
+
+		--
+		-- Check the RPM of our fans once per second
+		-- (uses counter slot-1, set to 1Hz timeout).
+		--
+		if (check_delay(1)) then
+			set_delay(1, timer0_isr_rate);	-- Reset the seconds timer.
+			calc_rpm();
+			seconds_cnt = seconds_cnt + 1;	-- Update the seconds counter.
+
+			--
+			-- One-Wire bus search and display call.  The minute_cnt
+			-- counter is reset to zero inside the calc_rpm routine.
+			-- We use this in turn to trigger a minute-based delay for
+			-- the one-wire reads, which are relatively infrequent.
+			--
+			if ((minute_cnt % 30) == 0) then
+				ow_mdly_cnt = ow_mdly_cnt + 1;
+				if (ow_mdly_cnt == ow_trigger) then
+					OWSearchnTell();	-- Search, read and display.
+					ow_mdly_cnt = 0;
+				end if
+			end if
+
+			if (seconds_cnt >= 30)	then
+				-- TESTING ONLY - Flip between low and high speeds
+				-- once every thirty seconds or so.
+				if (ADC_target == ADC_hitarg) then
+					ADC_target = ADC_lowtarg;
+				else
+					ADC_target = ADC_hitarg;
+				end if
+				seconds_cnt = 0;
+			end if		
+		else
+			-- TESTING ONLY - Poll the fan interrupt flag (it gets set, even
+			-- though interrupts aren't enabled).
+			if (INT1F == 1) then
+				INT_cnt = INT_cnt + 1;	
+				INT1F = 0;	-- Reset interrupt flag.
+			end if
+		end if
+
+	--	delay_100ms(1);	-- Settle time (if not in powe-up mode).
+	end if
+
+	for ADC_average loop
+		w_measure = w_measure + adc_read_high_res(ADC_PWM_CH1);
+	end loop
+	if (w_measure < ADC_average) then
+		w_measure = ADC_average;
+	end if
+	w_measure = w_measure / ADC_average;
+
+--	w_measure = adc_read_high_res(ADC_PWM_CH1);
+
+	--
+	-- Cut the drive to the PWM if we sense an over-voltage on the
+	-- output.  This should stop the auto regulation going crazy, but
+	-- for complete protection, each channel should be fused and
+	-- protected with a hardware, "crowbar" over-voltage circuit.
+	--
+	if (w_measure >= ADC_limit) then
+		emergency_stop();
+		print_string(xport, ov_detect);
+		print_word_dec(xport, w_measure);
+		print_crlf(xport);
+		while TRUE loop			-- Forever.
+			delay_100ms(10);
+			flash_high();		-- With flashing LED.
+		end loop
+	end if
+	
+	-- Output debug info on ADC about once every few seconds.
+--	if ((seconds_cnt % 9) == 0) then
+--		print_string(xport, adc);
+--		print_word_dec(xport, w_measure);
+--		print_crlf(xport);
+--		print_string(xport, pwm);
+--		print_byte_dec(xport, PWM_ratio);
+--		print_crlf(xport);
+--	end if
+	
+	--
+	-- If the count returned by the ADC read is higher than our
+	-- target voltage, reduce the PWM "on" time.  If it is lower,
+	-- then increase it (a little).  If it's spot on, leave the
+	-- PWM value as it is.
+	--
+	if (w_measure > ADC_target) then
+		-- Check for initial, power-on overshoot.
+		if (PUP_flag == 1) then
+			if (w_measure > (ADC_target + 250)) then
+				PWM_ratio = PWM_ratio - 250;
+			elsif (w_measure > (ADC_target + 150)) then
+				PWM_ratio = PWM_ratio - 150;
+			elsif (w_measure > (ADC_target + 100)) then
+				PWM_ratio = PWM_ratio - 100;
+			elsif (w_measure > (ADC_target + 50)) then
+				PWM_ratio = PWM_ratio - 50;
+			elsif (w_measure > (ADC_target + 25)) then
+				PWM_ratio = PWM_ratio - 25;
+			elsif (w_measure > (ADC_target + 10)) then
+				PWM_ratio = PWM_ratio - 10;
+			else
+				PWM_ratio = PWM_ratio - 5;
+			end if
+	--		print_string(xport, pup);
+	--		print_string(xport, hi);
+	--		print_crlf(xport);
+		else
+			-- No longer in power-up loop, but we want to reduce PSU
+			-- "hunt" by giving the ADC 500mv of leeway in either direction
+			-- before the controller triggers a PWM duty-cycle update.
+			if (w_measure > (ADC_target + ADC_leeway)) then
+		--		print_string(xport, vhi);
+		--		print_string(xport, sub10);
+		--		print_crlf(xport);
+				PWM_ratio = PWM_ratio - 10;
+			elsif (w_measure > (ADC_target + 5)) then
+		--		print_string(xport, hi);
+		--		print_string(xport, sub);
+		--		print_crlf(xport);
+				PWM_ratio = PWM_ratio - 1;
+			else
+		--		print_string(xport, ok);
+		--		print_crlf(xport);
+		--		print_crlf(xport);
+			end if
+		end if
+	elsif (w_measure < ADC_target) then
+		-- Again, 500mv leeway.
+		if (w_measure < (ADC_target - ADC_leeway)) then
+--			print_string(xport, vlo);
+--			print_string(xport, add10);
+--			print_crlf(xport);
+			PWM_ratio = PWM_ratio + 10;
+		elsif (w_measure < (ADC_target - 5)) then
+		--	print_string(xport, lo);
+		--	print_string(xport, add);
+		--	print_crlf(xport);
+			PWM_ratio = PWM_ratio + 1;
+		else
+		--	print_string(xport, ok);
+		--	print_crlf(xport);
+		--	print_crlf(xport);
+		end if
+	else
+	--	print_string(xport, ok);
+	--	print_crlf(xport);
+	--	print_crlf(xport);
+	end if
+
+	-- Power-up delay routine.
+	-- Our counter will roll-over, but we don't care (so there! :-P).
+	pup_delay = pup_delay + 1;
+	if (pup_delay >= 35) then
+		PDLY_flag = 0;
+	end if
+	if (PDLY_flag != 1) then
+		PUP_flag = 0;			-- Clear initial power-up flag.
+	end if
+
+end loop
