@@ -5,7 +5,7 @@ This is a project in-process.  Don't expect everything (*anything?*) here to act
 
 If you're going to follow along, you'll need some method of programming mid- and low-range PIC microcontrollers and you should also have the JALLIB package installed (to provide all of the basic library functions).  The JALLIB package already includes the JALv2 compiler.
 
-The original direction of this project was to use the PIC18F27J53 as the master controller, talking to a couple of low-end PIC12F1840's over an I2C bus.  However, with the introduction of the ESP8266 series of very low cost, wireless microcontrollers that has now changed to include multiple ESP8266 remote stations (instead of the PIC12 modules) all communicating with the master.
+The original direction of this project was to use the PIC18F27J53 as the master controller, talking to a couple of low-end PIC12F1840's over an I2C bus.  However, with the introduction of the ESP8266 series of very low cost, wireless microcontrollers that has now changed to include multiple ESP8266 remote stations (instead of the PIC12 modules) all communicating with the master.  As you can see from the CVS log, and also from the schematic, the PIC18F27J53 has on-board USB, which was used as STDIO during the early phases of development.
 
 ![](https://cloud.githubusercontent.com/assets/10677593/7465295/7fafaf9e-f308-11e4-817f-369682c55f99.jpg)
 
