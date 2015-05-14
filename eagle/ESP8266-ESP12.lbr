@@ -126,7 +126,7 @@
 </symbol>
 </symbols>
 <devicesets>
-<deviceset name="ESP8266_ESP-12">
+<deviceset name="ESP8266-12" prefix="MDL" uservalue="yes">
 <description>Espressif ESP8266 ESP-12 Module with GPIO04 and GPIO05 corrected.</description>
 <gates>
 <gate name="G$1" symbol="ESP12" x="5.08" y="0"/>
