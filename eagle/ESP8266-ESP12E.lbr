@@ -60,7 +60,7 @@
 <package name="ESP8266-ESP12E">
 <description>
 &lt;b&gt;ESP8266-12E with additional I/O and GPIO04/05 corrected&lt;/b&gt;&lt;p&gt;
-Neither CadSoft nor the author warrant that this library is free from error
+The author cannot warrant that this library is free from error
 or will meet your specific requirements.&lt;p&gt;
 &lt;author&gt;Created by PuceBaboon.com. Komagane, Nagano, JAPAN&lt;/author&gt;
 </description>
@@ -114,7 +114,7 @@ or will meet your specific requirements.&lt;p&gt;
 <symbol name="ESP12E">
 <description>
 &lt;b&gt;ESP8266-12E with additional I/O and GPIO04/05 corrected&lt;/b&gt;&lt;p&gt;
-Neither CadSoft nor the author warrant that this library is free from error
+The author cannot warrant that this library is free from error
 or will meet your specific requirements.&lt;p&gt;
 &lt;author&gt;Created by PuceBaboon.com. Komagane, Nagano, JAPAN&lt;/author&gt;
 </description>
@@ -152,7 +152,7 @@ or will meet your specific requirements.&lt;p&gt;
 <deviceset name="ESP8266-12E" prefix="MDL" uservalue="yes">
 <description>
 &lt;b&gt;ESP8266-12E with additional I/O and GPIO04/05 corrected&lt;/b&gt;&lt;p&gt;
-Neither CadSoft nor the author warrant that this library is free from error
+The author cannot warrant that this library is free from error
 or will meet your specific requirements.&lt;p&gt;
 &lt;author&gt;Created by PuceBaboon.com. Komagane, Nagano, JAPAN&lt;/author&gt;
 </description>
