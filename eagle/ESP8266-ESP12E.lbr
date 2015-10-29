@@ -164,10 +164,10 @@ or will meet your specific requirements.&lt;p&gt;
 <connects>
 <connect gate="G$1" pin="ADC" pad="2"/>
 <connect gate="G$1" pin="CH_PD" pad="3"/>
-<connect gate="G$1" pin="CS0" pad="17"/>
+<connect gate="G$1" pin="CS0" pad="18"/>
 <connect gate="G$1" pin="GND" pad="9"/>
 <connect gate="G$1" pin="GPIO0" pad="12"/>
-<connect gate="G$1" pin="GPIO10" pad="20"/>
+<connect gate="G$1" pin="GPIO10" pad="22"/>
 <connect gate="G$1" pin="GPIO12" pad="6"/>
 <connect gate="G$1" pin="GPIO13" pad="7"/>
 <connect gate="G$1" pin="GPIO14" pad="5"/>
@@ -176,12 +176,12 @@ or will meet your specific requirements.&lt;p&gt;
 <connect gate="G$1" pin="GPIO2" pad="11"/>
 <connect gate="G$1" pin="GPIO4" pad="13"/>
 <connect gate="G$1" pin="GPIO5" pad="14"/>
-<connect gate="G$1" pin="GPIO9" pad="19"/>
-<connect gate="G$1" pin="MISO" pad="18"/>
-<connect gate="G$1" pin="MOSI" pad="21"/>
+<connect gate="G$1" pin="GPIO9" pad="21"/>
+<connect gate="G$1" pin="MISO" pad="19"/>
+<connect gate="G$1" pin="MOSI" pad="17"/>
 <connect gate="G$1" pin="REST" pad="1"/>
 <connect gate="G$1" pin="RXD" pad="15"/>
-<connect gate="G$1" pin="SCLK" pad="22"/>
+<connect gate="G$1" pin="SCLK" pad="20"/>
 <connect gate="G$1" pin="TXD" pad="16"/>
 <connect gate="G$1" pin="VCC" pad="8"/>
 </connects>
